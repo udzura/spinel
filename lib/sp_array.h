@@ -210,6 +210,21 @@ static inline sp_bool sp_IntArray_elem_nil(sp_IntArray*a,sp_int i){return SP_UNL
    of a large function (optcarrot's CPU#run) once it grew those arms. */
 static SP_NOINLINE SP_COLD sp_oint sp_IntArray_oget_slow(sp_IntArray*a,sp_int i){if(!a)return sp_oint_nil();if(!((unsigned long long)i<(unsigned long long)a->len)){if(i<0)i+=a->len;if(i<0||i>=a->len)return sp_oint_nil();}sp_int pi=a->start+i;sp_int v=a->data[pi];if(a->nilbits&&sp_nilbit_get(a->nilbits,pi))return sp_oint_nil();return sp_oint_of(v);}
 static SP_INLINE sp_oint sp_IntArray_oget(sp_IntArray*a,sp_int i){if(SP_LIKELY(a&&(unsigned long long)i<(unsigned long long)a->len)){sp_int v=a->data[a->start+i];if(SP_LIKELY(!a->nilbits))return sp_oint_of(v);}return sp_IntArray_oget_slow(a,i);}
+/* Array#fetch(i) raises on a miss and retains both the shifted head and
+   the nil bitmap on a hit. Only the exceptional path formats the bounds. */
+static SP_NOINLINE SP_COLD sp_int sp_IntArray_fetch_index(sp_int i, sp_int len) {
+    if (i < 0 && i >= -len) return i + len;
+    sp_raise_cls("IndexError", sp_sprintf("index %lld outside of array bounds: %lld...%lld",
+                 (long long)i, (long long)-len, (long long)len));
+}
+static SP_INLINE sp_oint sp_IntArray_fetch_o(sp_IntArray *a, sp_int i) {
+    if (SP_UNLIKELY(!a)) sp_nil_recv("fetch");
+    if (SP_UNLIKELY((uint64_t)i >= (uint64_t)a->len)) i = sp_IntArray_fetch_index(i, a->len);
+    sp_int pos = a->start + i;
+    if (SP_UNLIKELY(a->nilbits) && sp_nilbit_get(a->nilbits, pos)) return sp_oint_nil();
+    return sp_oint_of(a->data[pos]);
+}
+
 /* Issue #769: a very-negative i leaves i negative after the `i += a->len`
    adjustment. CRuby raises IndexError; spinel no-ops as the safest
    fallback (raising from a typed-array set would need setjmp plumbing

@@ -1313,8 +1313,12 @@ static int fetch_recv_in_slot(Compiler *c, int recv, int index, const char *rend
   if (!rendered || !sp_streq(rendered, want)) return 0;
 
   index = nt_paren_single(nt, index);
-  if (index < 0 || repr_of(c, index).kind != RK_SCALAR || comp_ntype(c, index) != TY_INT) return 0;
+  if (index < 0 || comp_ntype(c, index) != TY_INT) return 0;
   NodeKind k = nt_kind(nt, index);
+  ReprKind kind = repr_of(c, index).kind;
+  /* Reading a nilable integer local runs no Ruby: its integer argument
+     conversion either takes the word or raises before the receiver is used. */
+  if (kind != RK_SCALAR && !(k == NK_LocalVariableReadNode && kind == RK_OPT)) return 0;
   if (k == NK_CallNode) {
     const char *op = nt_str(nt, index, "name");
     int ir = nt_ref(nt, index, "receiver"), ac = 0;
@@ -2570,6 +2574,11 @@ static void emit_kind_array_fetch(Compiler *c, int id, Buf *b, int recv, int arg
   buf_printf(b, "({ sp_%sArray *_t%d = %s;", k, ta, ra.p ? ra.p : "NULL"); free(ra.p);
   if (!held) buf_printf(b, " SP_GC_ROOT(_t%d);", ta);
   buf_printf(b, " sp_int _t%d = ", ti); emit_int_expr(c, argv[0], b); buf_puts(b, ";");
+  if (rt == TY_INT_ARRAY && argc == 1 && blk < 0 && !boxed) {
+    buf_printf(b, " sp_IntArray_fetch_o(_t%d, _t%d)%s; })",
+               ta, ti, node_is_oint(c, id) ? "" : ".v");
+    return;
+  }
   buf_printf(b, " sp_int _t%d = sp_%sArray_length(_t%d);", tn, k, ta);
   buf_printf(b, " sp_int _t%d = _t%d < 0 ? _t%d + _t%d : _t%d;", tnorm, ti, ti, tn, ti);
   buf_printf(b, " (_t%d >= 0 && _t%d < _t%d) ? ", tnorm, tnorm, tn);
